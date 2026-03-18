@@ -70,6 +70,24 @@ let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
 let messageLoopRunning = false;
 
+/** Build a queue/session key that encodes both chat JID and thread timestamp. */
+function makeThreadKey(chatJid: string, threadTs?: string): string {
+  return threadTs ? `${chatJid}|${threadTs}` : chatJid;
+}
+
+/** Extract chat JID and optional thread timestamp from a thread key. */
+function parseThreadKey(key: string): { chatJid: string; threadTs?: string } {
+  const idx = key.indexOf('|');
+  if (idx === -1) return { chatJid: key };
+  return { chatJid: key.slice(0, idx), threadTs: key.slice(idx + 1) };
+}
+
+/** Derive a valid group-folder-style name for a thread's IPC directory. */
+function threadIpcFolder(groupFolder: string, threadTs: string): string {
+  const safeTs = threadTs.replace(/[^A-Za-z0-9_-]/g, '_');
+  return `${groupFolder}_t${safeTs}`.slice(0, 64);
+}
+
 const channels: Channel[] = [];
 const queue = new GroupQueue();
 
@@ -145,10 +163,12 @@ export function _setRegisteredGroups(
 }
 
 /**
- * Process all pending messages for a group.
- * Called by the GroupQueue when it's this group's turn.
+ * Process all pending messages for a group (or a specific thread within a group).
+ * Called by the GroupQueue when it's this thread key's turn.
+ * queueKey is either a chatJid or a thread key `{chatJid}|{threadTs}`.
  */
-async function processGroupMessages(chatJid: string): Promise<boolean> {
+async function processGroupMessages(queueKey: string): Promise<boolean> {
+  const { chatJid, threadTs } = parseThreadKey(queueKey);
   const group = registeredGroups[chatJid];
   if (!group) return true;
 
@@ -160,12 +180,19 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   const isMainGroup = group.isMain === true;
 
-  const sinceTimestamp = lastAgentTimestamp[chatJid] || '';
-  const missedMessages = getMessagesSince(
+  const sinceTimestamp = lastAgentTimestamp[queueKey] || '';
+  let missedMessages = getMessagesSince(
     chatJid,
     sinceTimestamp,
     ASSISTANT_NAME,
   );
+
+  // When processing a specific thread, only include messages from that thread
+  if (threadTs) {
+    missedMessages = missedMessages.filter(
+      (m) => !m.thread_ts || m.thread_ts === threadTs,
+    );
+  }
 
   if (missedMessages.length === 0) return true;
 
@@ -184,13 +211,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
-  const previousCursor = lastAgentTimestamp[chatJid] || '';
-  lastAgentTimestamp[chatJid] =
+  const previousCursor = lastAgentTimestamp[queueKey] || '';
+  lastAgentTimestamp[queueKey] =
     missedMessages[missedMessages.length - 1].timestamp;
   saveState();
 
   logger.info(
-    { group: group.name, messageCount: missedMessages.length },
+    { group: group.name, threadTs, messageCount: missedMessages.length },
     'Processing messages',
   );
 
@@ -204,40 +231,57 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         { group: group.name },
         'Idle timeout, closing container stdin',
       );
-      queue.closeStdin(chatJid);
+      queue.closeStdin(queueKey);
     }, IDLE_TIMEOUT);
   };
+
+  // Session is isolated per thread
+  const sessionKey = `${group.folder}|${threadTs || 'main'}`;
+  const ipcDir = threadTs
+    ? threadIpcFolder(group.folder, threadTs)
+    : group.folder;
 
   await channel.setTyping?.(chatJid, true);
   let hadError = false;
   let outputSentToUser = false;
 
-  const output = await runAgent(group, prompt, chatJid, async (result) => {
-    // Streaming output callback — called for each agent result
-    if (result.result) {
-      const raw =
-        typeof result.result === 'string'
-          ? result.result
-          : JSON.stringify(result.result);
-      // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
-      logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
-      if (text) {
-        await channel.sendMessage(chatJid, text);
-        outputSentToUser = true;
+  const output = await runAgent(
+    group,
+    prompt,
+    chatJid,
+    queueKey,
+    sessionKey,
+    ipcDir,
+    async (result) => {
+      // Streaming output callback — called for each agent result
+      if (result.result) {
+        const raw =
+          typeof result.result === 'string'
+            ? result.result
+            : JSON.stringify(result.result);
+        // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
+        const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        logger.info(
+          { group: group.name },
+          `Agent output: ${raw.slice(0, 200)}`,
+        );
+        if (text) {
+          await channel.sendMessage(chatJid, text);
+          outputSentToUser = true;
+        }
+        // Only reset idle timer on actual results, not session-update markers (result: null)
+        resetIdleTimer();
       }
-      // Only reset idle timer on actual results, not session-update markers (result: null)
-      resetIdleTimer();
-    }
 
-    if (result.status === 'success') {
-      queue.notifyIdle(chatJid);
-    }
+      if (result.status === 'success') {
+        queue.notifyIdle(queueKey);
+      }
 
-    if (result.status === 'error') {
-      hadError = true;
-    }
-  });
+      if (result.status === 'error') {
+        hadError = true;
+      }
+    },
+  );
 
   await channel.setTyping?.(chatJid, false);
   if (idleTimer) clearTimeout(idleTimer);
@@ -253,7 +297,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       return true;
     }
     // Roll back cursor so retries can re-process these messages
-    lastAgentTimestamp[chatJid] = previousCursor;
+    lastAgentTimestamp[queueKey] = previousCursor;
     saveState();
     logger.warn(
       { group: group.name },
@@ -269,10 +313,13 @@ async function runAgent(
   group: RegisteredGroup,
   prompt: string,
   chatJid: string,
+  queueKey: string,
+  sessionKey: string,
+  ipcDir: string,
   onOutput?: (output: ContainerOutput) => Promise<void>,
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
-  const sessionId = sessions[group.folder];
+  const sessionId = sessions[sessionKey];
 
   // Update tasks snapshot for container to read (filtered by group)
   const tasks = getAllTasks();
@@ -303,8 +350,8 @@ async function runAgent(
   const wrappedOnOutput = onOutput
     ? async (output: ContainerOutput) => {
         if (output.newSessionId) {
-          sessions[group.folder] = output.newSessionId;
-          setSession(group.folder, output.newSessionId);
+          sessions[sessionKey] = output.newSessionId;
+          setSession(sessionKey, output.newSessionId);
         }
         await onOutput(output);
       }
@@ -317,18 +364,19 @@ async function runAgent(
         prompt,
         sessionId,
         groupFolder: group.folder,
+        ipcFolder: ipcDir,
         chatJid,
         isMain,
         assistantName: ASSISTANT_NAME,
       },
       (proc, containerName) =>
-        queue.registerProcess(chatJid, proc, containerName, group.folder),
+        queue.registerProcess(queueKey, proc, containerName, ipcDir),
       wrappedOnOutput,
     );
 
     if (output.newSessionId) {
-      sessions[group.folder] = output.newSessionId;
-      setSession(group.folder, output.newSessionId);
+      sessions[sessionKey] = output.newSessionId;
+      setSession(sessionKey, output.newSessionId);
     }
 
     if (output.status === 'error') {
@@ -371,18 +419,20 @@ async function startMessageLoop(): Promise<void> {
         lastTimestamp = newTimestamp;
         saveState();
 
-        // Deduplicate by group
-        const messagesByGroup = new Map<string, NewMessage[]>();
+        // Deduplicate by thread key ({chatJid}|{threadTs} or just chatJid)
+        const messagesByThread = new Map<string, NewMessage[]>();
         for (const msg of messages) {
-          const existing = messagesByGroup.get(msg.chat_jid);
+          const threadKey = makeThreadKey(msg.chat_jid, msg.thread_ts);
+          const existing = messagesByThread.get(threadKey);
           if (existing) {
             existing.push(msg);
           } else {
-            messagesByGroup.set(msg.chat_jid, [msg]);
+            messagesByThread.set(threadKey, [msg]);
           }
         }
 
-        for (const [chatJid, groupMessages] of messagesByGroup) {
+        for (const [threadKey, threadMessages] of messagesByThread) {
+          const { chatJid, threadTs } = parseThreadKey(threadKey);
           const group = registeredGroups[chatJid];
           if (!group) continue;
 
@@ -400,7 +450,7 @@ async function startMessageLoop(): Promise<void> {
           // context when a trigger eventually arrives.
           if (needsTrigger) {
             const allowlistCfg = loadSenderAllowlist();
-            const hasTrigger = groupMessages.some(
+            const hasTrigger = threadMessages.some(
               (m) =>
                 TRIGGER_PATTERN.test(m.content.trim()) &&
                 (m.is_from_me ||
@@ -409,23 +459,28 @@ async function startMessageLoop(): Promise<void> {
             if (!hasTrigger) continue;
           }
 
-          // Pull all messages since lastAgentTimestamp so non-trigger
-          // context that accumulated between triggers is included.
-          const allPending = getMessagesSince(
+          // Pull all messages since lastAgentTimestamp for this thread so
+          // non-trigger context that accumulated between triggers is included.
+          let allPending = getMessagesSince(
             chatJid,
-            lastAgentTimestamp[chatJid] || '',
+            lastAgentTimestamp[threadKey] || '',
             ASSISTANT_NAME,
           );
+          if (threadTs) {
+            allPending = allPending.filter(
+              (m) => !m.thread_ts || m.thread_ts === threadTs,
+            );
+          }
           const messagesToSend =
-            allPending.length > 0 ? allPending : groupMessages;
+            allPending.length > 0 ? allPending : threadMessages;
           const formatted = formatMessages(messagesToSend, TIMEZONE);
 
-          if (queue.sendMessage(chatJid, formatted)) {
+          if (queue.sendMessage(threadKey, formatted)) {
             logger.debug(
-              { chatJid, count: messagesToSend.length },
+              { chatJid, threadTs, count: messagesToSend.length },
               'Piped messages to active container',
             );
-            lastAgentTimestamp[chatJid] =
+            lastAgentTimestamp[threadKey] =
               messagesToSend[messagesToSend.length - 1].timestamp;
             saveState();
             // Show typing indicator while the container processes the piped message
@@ -436,7 +491,7 @@ async function startMessageLoop(): Promise<void> {
               );
           } else {
             // No active container — enqueue for a new one
-            queue.enqueueMessageCheck(chatJid);
+            queue.enqueueMessageCheck(threadKey);
           }
         }
       }

@@ -134,6 +134,7 @@ export class SlackChannel implements Channel {
         sender_name: senderName,
         content,
         timestamp,
+        thread_ts: (msg as any).thread_ts || msg.ts,
         is_from_me: isBotMessage,
         is_bot_message: isBotMessage,
       });
