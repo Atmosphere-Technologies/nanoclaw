@@ -164,9 +164,9 @@ export class SlackChannel implements Channel {
     await this.syncChannelMetadata();
   }
 
-  async sendMessage(jid: string, text: string): Promise<void> {
+  async sendMessage(jid: string, text: string, replyTo?: string): Promise<void> {
     const channelId = jid.replace(/^slack:/, '');
-    const threadTs = this.pendingThreadTs.get(channelId);
+    const threadTs = replyTo ?? this.pendingThreadTs.get(channelId);
 
     if (!this.connected) {
       this.outgoingQueue.push({ jid, text, threadTs });

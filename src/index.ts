@@ -266,7 +266,7 @@ async function processGroupMessages(queueKey: string): Promise<boolean> {
           `Agent output: ${raw.slice(0, 200)}`,
         );
         if (text) {
-          await channel.sendMessage(chatJid, text);
+          await channel.sendMessage(chatJid, text, threadTs);
           outputSentToUser = true;
         }
         // Only reset idle timer on actual results, not session-update markers (result: null)

@@ -30,6 +30,7 @@ function createSchema(database: Database.Database): void {
       sender_name TEXT,
       content TEXT,
       timestamp TEXT,
+      thread_ts TEXT,
       is_from_me INTEGER,
       is_bot_message INTEGER DEFAULT 0,
       PRIMARY KEY (id, chat_jid),
@@ -148,6 +149,14 @@ export function initDatabase(): void {
   db = new Database(dbPath);
   createSchema(db);
 
+  // Add thread_ts column to existing databases that predate this field
+  const cols = (db.pragma('table_info(messages)') as { name: string }[]).map(
+    (c) => c.name,
+  );
+  if (!cols.includes('thread_ts')) {
+    db.exec('ALTER TABLE messages ADD COLUMN thread_ts TEXT');
+  }
+
   // Migrate from JSON files if they exist
   migrateJsonState();
 }
@@ -262,7 +271,7 @@ export function setLastGroupSync(): void {
  */
 export function storeMessage(msg: NewMessage): void {
   db.prepare(
-    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, thread_ts, is_from_me, is_bot_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     msg.id,
     msg.chat_jid,
@@ -270,6 +279,7 @@ export function storeMessage(msg: NewMessage): void {
     msg.sender_name,
     msg.content,
     msg.timestamp,
+    msg.thread_ts ?? null,
     msg.is_from_me ? 1 : 0,
     msg.is_bot_message ? 1 : 0,
   );
@@ -316,7 +326,7 @@ export function getNewMessages(
   // Subquery takes the N most recent, outer query re-sorts chronologically.
   const sql = `
     SELECT * FROM (
-      SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me
+      SELECT id, chat_jid, sender, sender_name, content, timestamp, thread_ts, is_from_me
       FROM messages
       WHERE timestamp > ? AND chat_jid IN (${placeholders})
         AND is_bot_message = 0 AND content NOT LIKE ?
@@ -349,7 +359,7 @@ export function getMessagesSince(
   // Subquery takes the N most recent, outer query re-sorts chronologically.
   const sql = `
     SELECT * FROM (
-      SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me
+      SELECT id, chat_jid, sender, sender_name, content, timestamp, thread_ts, is_from_me
       FROM messages
       WHERE chat_jid = ? AND timestamp > ?
         AND is_bot_message = 0 AND content NOT LIKE ?
