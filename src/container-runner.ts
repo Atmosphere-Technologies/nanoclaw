@@ -240,6 +240,11 @@ function buildContainerArgs(
     args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
   }
 
+  // Pass GitHub token if available (for repo access and contributions)
+  if (process.env.GITHUB_TOKEN) {
+    args.push('-e', `GITHUB_TOKEN=${process.env.GITHUB_TOKEN}`);
+  }
+
   // Runtime-specific args for host gateway resolution
   args.push(...hostGatewayArgs());
 
