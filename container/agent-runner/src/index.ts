@@ -430,18 +430,22 @@ function buildAgentTechMcpServers(gcpToken?: string | null): Record<string, obje
   if (gcpToken) {
     const authHeader = `Bearer ${gcpToken}`;
     servers['gcp_resource_manager'] = {
+      type: 'http',
       url: 'https://cloudresourcemanager.googleapis.com/mcp',
       headers: { Authorization: authHeader },
     };
     servers['gcp_compute'] = {
+      type: 'http',
       url: 'https://compute.googleapis.com/mcp',
       headers: { Authorization: authHeader },
     };
     servers['gcp_run'] = {
+      type: 'http',
       url: 'https://run.googleapis.com/mcp',
       headers: { Authorization: authHeader },
     };
     servers['gcp_sql'] = {
+      type: 'http',
       url: 'https://sqladmin.googleapis.com/mcp',
       headers: { Authorization: authHeader },
     };
