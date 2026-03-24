@@ -345,6 +345,15 @@ Use available_groups.json to find the JID for a group. The folder name must be c
     name: z.string().describe('Display name for the group'),
     folder: z.string().describe('Channel-prefixed folder name (e.g., "whatsapp_family-chat", "telegram_dev-team")'),
     trigger: z.string().describe('Trigger word (e.g., "@Andy")'),
+    containerConfig: z.object({
+      additionalMounts: z.array(z.object({
+        hostPath: z.string(),
+        containerPath: z.string().optional(),
+        readonly: z.boolean().optional(),
+      })).optional(),
+      timeout: z.number().optional(),
+      envPassthrough: z.array(z.string()).optional(),
+    }).optional().describe('Optional container configuration: extra mounts and env var names to pass through from host'),
   },
   async (args) => {
     if (!isMain) {
@@ -360,6 +369,7 @@ Use available_groups.json to find the JID for a group. The folder name must be c
       name: args.name,
       folder: args.folder,
       trigger: args.trigger,
+      containerConfig: args.containerConfig,
       timestamp: new Date().toISOString(),
     };
 
