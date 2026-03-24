@@ -31,6 +31,11 @@ RUN apt-get update && apt-get install -y \
 # Install ClickHouse MCP (Python)
 RUN pip3 install --break-system-packages mcp-clickhouse
 
+# Install Python dependencies for skills (geo, etc.)
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+COPY requirements.txt /tmp/requirements-skills.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements-skills.txt
+
 # Set Chromium path for agent-browser
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
