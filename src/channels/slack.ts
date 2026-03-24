@@ -36,12 +36,16 @@ export class SlackChannel implements Channel {
   private app: App;
   private botUserId: string | undefined;
   private connected = false;
-  private outgoingQueue: Array<{ jid: string; text: string; threadTs?: string }> = [];  
+  private outgoingQueue: Array<{
+    jid: string;
+    text: string;
+    threadTs?: string;
+  }> = [];
   private flushing = false;
   private userNameCache = new Map<string, string>();
 
   private opts: SlackChannelOpts;
-  
+
   // Maps channelId → thread_ts of the last user message, so replies go into the same thread.
   private pendingThreadTs = new Map<string, string>();
 
@@ -103,7 +107,7 @@ export class SlackChannel implements Channel {
 
       // Only deliver full messages for registered groups
       const groups = this.opts.registeredGroups();
-      if (!groups[jid]) return;      
+      if (!groups[jid]) return;
 
       let senderName: string;
       if (isBotMessage) {
@@ -166,7 +170,11 @@ export class SlackChannel implements Channel {
     await this.syncChannelMetadata();
   }
 
-  async sendMessage(jid: string, text: string, replyTo?: string): Promise<void> {
+  async sendMessage(
+    jid: string,
+    text: string,
+    replyTo?: string,
+  ): Promise<void> {
     const channelId = jid.replace(/^slack:/, '');
     const threadTs = replyTo ?? this.pendingThreadTs.get(channelId);
 
@@ -225,7 +233,13 @@ export class SlackChannel implements Channel {
     // no-op: Slack Bot API has no typing indicator endpoint
   }
 
-  async sendFile(jid: string, filePath: string, filename: string, comment?: string, replyTo?: string): Promise<void> {
+  async sendFile(
+    jid: string,
+    filePath: string,
+    filename: string,
+    comment?: string,
+    replyTo?: string,
+  ): Promise<void> {
     const channelId = jid.replace(/^slack:/, '');
     const threadTs = replyTo ?? this.pendingThreadTs.get(channelId);
 
