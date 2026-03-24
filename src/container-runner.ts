@@ -217,6 +217,7 @@ function buildVolumeMounts(
 function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
+  envPassthrough?: string[],
 ): string[] {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
@@ -243,6 +244,15 @@ function buildContainerArgs(
   // Pass GitHub token if available (for repo access and contributions)
   if (process.env.GITHUB_TOKEN) {
     args.push('-e', `GITHUB_TOKEN=${process.env.GITHUB_TOKEN}`);
+  }
+
+  // Pass group-specific env vars through (names from containerConfig, values from host env)
+  if (envPassthrough) {
+    for (const varName of envPassthrough) {
+      if (process.env[varName] !== undefined) {
+        args.push('-e', `${varName}=${process.env[varName]}`);
+      }
+    }
   }
 
   // Runtime-specific args for host gateway resolution
@@ -285,7 +295,7 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain, input.ipcFolder);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = buildContainerArgs(mounts, containerName);
+  const containerArgs = buildContainerArgs(mounts, containerName, group.containerConfig?.envPassthrough);
 
   logger.debug(
     {

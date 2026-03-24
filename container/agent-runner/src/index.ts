@@ -54,6 +54,9 @@ interface SDKUserMessage {
   session_id: string;
 }
 
+// Path to GCP service account key inside the container (mounted via additionalMounts)
+const GCP_SA_PATH = '/workspace/extra/gcp-sa/gcp-agent-tech.json';
+
 const IPC_INPUT_DIR = '/workspace/ipc/input';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
@@ -115,6 +118,30 @@ function writeOutput(output: ContainerOutput): void {
 
 function log(message: string): void {
   console.error(`[agent-runner] ${message}`);
+}
+
+/**
+ * Get a GCP access token using the service account key file.
+ * Returns null if the key file is not present or on error.
+ */
+async function getGcpAccessToken(): Promise<string | null> {
+  if (!fs.existsSync(GCP_SA_PATH)) {
+    log(`GCP SA key not found at ${GCP_SA_PATH}`);
+    return null;
+  }
+  try {
+    const { GoogleAuth } = await import('google-auth-library');
+    const auth = new GoogleAuth({
+      keyFile: GCP_SA_PATH,
+      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+    });
+    const client = await auth.getClient();
+    const tokenResponse = await (client as { getAccessToken(): Promise<{ token?: string | null }> }).getAccessToken();
+    return tokenResponse.token || null;
+  } catch (err) {
+    log(`Failed to get GCP access token: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
 }
 
 function getSessionSummary(sessionId: string, transcriptPath: string): string | null {
@@ -324,6 +351,106 @@ function waitForIpcMessage(): Promise<string | null> {
 }
 
 /**
+ * Build the extra MCP servers for the agent-tech Slack channel.
+ * Each MCP is only added when its corresponding env var is present.
+ */
+function buildAgentTechMcpServers(gcpToken?: string | null): Record<string, object> {
+  const servers: Record<string, object> = {};
+  const e = process.env;
+
+  // PostgreSQL staging
+  if (e.PG_AGENT_TECH_STAGING) {
+    servers['postgres_staging'] = {
+      command: 'node',
+      args: ['/workspace/extra/postgres-mcp/index.js', e.PG_AGENT_TECH_STAGING],
+    };
+  }
+
+  // PostgreSQL prod
+  if (e.PG_AGENT_TECH_PROD) {
+    servers['postgres_prod'] = {
+      command: 'node',
+      args: ['/workspace/extra/postgres-mcp/index.js', e.PG_AGENT_TECH_PROD],
+    };
+  }
+
+  // ClickHouse staging
+  if (e.CLICKHOUSE_HOST_STAGING) {
+    servers['clickhouse_staging'] = {
+      command: 'python3',
+      args: ['-m', 'mcp_clickhouse'],
+      env: {
+        CLICKHOUSE_HOST: e.CLICKHOUSE_HOST_STAGING,
+        CLICKHOUSE_PORT: e.CLICKHOUSE_PORT_STAGING || '8123',
+        CLICKHOUSE_USER: e.CLICKHOUSE_USER_STAGING || 'nanoclaw_ro',
+        CLICKHOUSE_PASSWORD: e.CLICKHOUSE_PASSWORD_STAGING || '',
+        CLICKHOUSE_SECURE: e.CLICKHOUSE_SECURE_STAGING || 'false',
+      },
+    };
+  }
+
+  // ClickHouse prod
+  if (e.CLICKHOUSE_HOST_PROD) {
+    servers['clickhouse_prod'] = {
+      command: 'python3',
+      args: ['-m', 'mcp_clickhouse'],
+      env: {
+        CLICKHOUSE_HOST: e.CLICKHOUSE_HOST_PROD,
+        CLICKHOUSE_PORT: e.CLICKHOUSE_PORT_PROD || '8443',
+        CLICKHOUSE_USER: e.CLICKHOUSE_USER_PROD || 'nanoclaw_ro',
+        CLICKHOUSE_PASSWORD: e.CLICKHOUSE_PASSWORD_PROD || '',
+        CLICKHOUSE_SECURE: e.CLICKHOUSE_SECURE_PROD || 'true',
+      },
+    };
+  }
+
+  // GitHub MCP (binary mounted from host)
+  if (e.GITHUB_TOKEN_AGENT_TECH) {
+    servers['github'] = {
+      command: '/workspace/extra/github-mcp/github-mcp-server',
+      args: ['stdio'],
+      env: {
+        GITHUB_PERSONAL_ACCESS_TOKEN: e.GITHUB_TOKEN_AGENT_TECH,
+      },
+    };
+  }
+
+  // Heroku MCP (installed globally in the container image)
+  if (e.HEROKU_API_KEY_AGENT_TECH) {
+    servers['heroku'] = {
+      command: 'heroku-mcp-server',
+      args: [],
+      env: {
+        HEROKU_API_KEY: e.HEROKU_API_KEY_AGENT_TECH,
+      },
+    };
+  }
+
+  // GCP remote MCPs (streamable HTTP, authenticated via SA token)
+  if (gcpToken) {
+    const authHeader = `Bearer ${gcpToken}`;
+    servers['gcp_resource_manager'] = {
+      url: 'https://cloudresourcemanager.googleapis.com/mcp',
+      headers: { Authorization: authHeader },
+    };
+    servers['gcp_compute'] = {
+      url: 'https://compute.googleapis.com/mcp',
+      headers: { Authorization: authHeader },
+    };
+    servers['gcp_run'] = {
+      url: 'https://run.googleapis.com/mcp',
+      headers: { Authorization: authHeader },
+    };
+    servers['gcp_sql'] = {
+      url: 'https://sqladmin.googleapis.com/mcp',
+      headers: { Authorization: authHeader },
+    };
+  }
+
+  return servers;
+}
+
+/**
  * Run a single query and stream results via writeOutput.
  * Uses MessageStream (AsyncIterable) to keep isSingleUserTurn=false,
  * allowing agent teams subagents to run to completion.
@@ -336,6 +463,7 @@ async function runQuery(
   containerInput: ContainerInput,
   sdkEnv: Record<string, string | undefined>,
   resumeAt?: string,
+  gcpToken?: string | null,
 ): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean }> {
   const stream = new MessageStream();
   stream.push(prompt);
@@ -407,7 +535,19 @@ async function runQuery(
         'TeamCreate', 'TeamDelete', 'SendMessage',
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
-        'mcp__nanoclaw__*'
+        'mcp__nanoclaw__*',
+        ...(containerInput.groupFolder === 'slack_agent-tech' ? [
+          'mcp__postgres_staging__*',
+          'mcp__postgres_prod__*',
+          'mcp__clickhouse_staging__*',
+          'mcp__clickhouse_prod__*',
+          'mcp__github__*',
+          'mcp__heroku__*',
+          'mcp__gcp_resource_manager__*',
+          'mcp__gcp_compute__*',
+          'mcp__gcp_run__*',
+          'mcp__gcp_sql__*',
+        ] : []),
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -423,6 +563,9 @@ async function runQuery(
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
         },
+        ...(containerInput.groupFolder === 'slack_agent-tech'
+          ? buildAgentTechMcpServers(gcpToken)
+          : {}),
       },
       hooks: {
         PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],
@@ -488,6 +631,13 @@ async function main(): Promise<void> {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const mcpServerPath = path.join(__dirname, 'ipc-mcp-stdio.js');
 
+  // Obtain GCP access token for agent-tech group (reused across queries in this session)
+  let gcpToken: string | null = null;
+  if (containerInput.groupFolder === 'slack_agent-tech') {
+    gcpToken = await getGcpAccessToken();
+    log(gcpToken ? 'GCP access token obtained' : 'GCP access token unavailable (SA key missing or error)');
+  }
+
   let sessionId = containerInput.sessionId;
   fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
 
@@ -511,7 +661,7 @@ async function main(): Promise<void> {
     while (true) {
       log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
 
-      const queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+      const queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt, gcpToken);
       if (queryResult.newSessionId) {
         sessionId = queryResult.newSessionId;
       }
