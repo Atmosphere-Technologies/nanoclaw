@@ -244,3 +244,9 @@ When scheduling tasks for other groups, use the `target_group_jid` parameter wit
 - `schedule_task(prompt: "...", schedule_type: "cron", schedule_value: "0 9 * * 1", target_group_jid: "120363336345536173@g.us")`
 
 The task will run in that group's context with access to their files and memory.
+
+## Upload large reports by default in SlackGroups
+
+When generating reports or extensive analysis in Markdown, save the content in /workspace/group/<descriptive_name>.md and use the upload_file tools to send it to the slack thread in place of sending the text directly.
+Use this behaviour only for large analysis and reports or when explicitly requested.
+
