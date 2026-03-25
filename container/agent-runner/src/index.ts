@@ -360,22 +360,29 @@ function buildAgentTechMcpServers(gcpToken?: string | null): Record<string, obje
 
   // PostgreSQL staging
   if (e.PG_AGENT_TECH_STAGING) {
+    log('[agent-tech] Adding MCP: postgres_staging');
     servers['postgres_staging'] = {
       command: 'node',
       args: ['/workspace/extra/postgres-mcp/index.js', e.PG_AGENT_TECH_STAGING],
     };
+  } else {
+    log('[agent-tech] SKIP MCP postgres_staging: PG_AGENT_TECH_STAGING not set');
   }
 
   // PostgreSQL prod
   if (e.PG_AGENT_TECH_PROD) {
+    log('[agent-tech] Adding MCP: postgres_prod');
     servers['postgres_prod'] = {
       command: 'node',
       args: ['/workspace/extra/postgres-mcp/index.js', e.PG_AGENT_TECH_PROD],
     };
+  } else {
+    log('[agent-tech] SKIP MCP postgres_prod: PG_AGENT_TECH_PROD not set');
   }
 
   // ClickHouse staging
   if (e.CLICKHOUSE_HOST_STAGING) {
+    log('[agent-tech] Adding MCP: clickhouse_staging');
     servers['clickhouse_staging'] = {
       command: 'python3',
       args: ['-m', 'mcp_clickhouse'],
@@ -387,10 +394,13 @@ function buildAgentTechMcpServers(gcpToken?: string | null): Record<string, obje
         CLICKHOUSE_SECURE: e.CLICKHOUSE_SECURE_STAGING || 'false',
       },
     };
+  } else {
+    log('[agent-tech] SKIP MCP clickhouse_staging: CLICKHOUSE_HOST_STAGING not set');
   }
 
   // ClickHouse prod
   if (e.CLICKHOUSE_HOST_PROD) {
+    log('[agent-tech] Adding MCP: clickhouse_prod');
     servers['clickhouse_prod'] = {
       command: 'python3',
       args: ['-m', 'mcp_clickhouse'],
@@ -402,10 +412,13 @@ function buildAgentTechMcpServers(gcpToken?: string | null): Record<string, obje
         CLICKHOUSE_SECURE: e.CLICKHOUSE_SECURE_PROD || 'true',
       },
     };
+  } else {
+    log('[agent-tech] SKIP MCP clickhouse_prod: CLICKHOUSE_HOST_PROD not set');
   }
 
   // GitHub MCP (binary mounted from host)
   if (e.GITHUB_TOKEN_AGENT_TECH) {
+    log('[agent-tech] Adding MCP: github');
     servers['github'] = {
       command: '/workspace/extra/github-mcp/github-mcp-server',
       args: ['stdio'],
@@ -413,10 +426,13 @@ function buildAgentTechMcpServers(gcpToken?: string | null): Record<string, obje
         GITHUB_PERSONAL_ACCESS_TOKEN: e.GITHUB_TOKEN_AGENT_TECH,
       },
     };
+  } else {
+    log('[agent-tech] SKIP MCP github: GITHUB_TOKEN_AGENT_TECH not set');
   }
 
   // Heroku MCP (installed globally in the container image)
   if (e.HEROKU_API_KEY_AGENT_TECH) {
+    log('[agent-tech] Adding MCP: heroku');
     servers['heroku'] = {
       command: 'heroku-mcp-server',
       args: [],
@@ -424,33 +440,24 @@ function buildAgentTechMcpServers(gcpToken?: string | null): Record<string, obje
         HEROKU_API_KEY: e.HEROKU_API_KEY_AGENT_TECH,
       },
     };
+  } else {
+    log('[agent-tech] SKIP MCP heroku: HEROKU_API_KEY_AGENT_TECH not set');
   }
 
-  // GCP remote MCPs (streamable HTTP, authenticated via SA token)
+  // GCP Resource Manager (SSE transport — only this endpoint for now)
+  // The endpoint accepts text/event-stream which maps to SSE transport.
   if (gcpToken) {
-    const authHeader = `Bearer ${gcpToken}`;
+    log('[agent-tech] Adding MCP: gcp_resource_manager (type=sse)');
     servers['gcp_resource_manager'] = {
-      type: 'http',
+      type: 'sse',
       url: 'https://cloudresourcemanager.googleapis.com/mcp',
-      headers: { Authorization: authHeader },
+      headers: { Authorization: `Bearer ${gcpToken}` },
     };
-    servers['gcp_compute'] = {
-      type: 'http',
-      url: 'https://compute.googleapis.com/mcp',
-      headers: { Authorization: authHeader },
-    };
-    servers['gcp_run'] = {
-      type: 'http',
-      url: 'https://run.googleapis.com/mcp',
-      headers: { Authorization: authHeader },
-    };
-    servers['gcp_sql'] = {
-      type: 'http',
-      url: 'https://sqladmin.googleapis.com/mcp',
-      headers: { Authorization: authHeader },
-    };
+  } else {
+    log('[agent-tech] SKIP MCP gcp_resource_manager: no GCP token');
   }
 
+  log(`[agent-tech] MCP servers configured: ${Object.keys(servers).join(', ')}`);
   return servers;
 }
 
@@ -521,6 +528,13 @@ async function runQuery(
     log(`Additional directories: ${extraDirs.join(', ')}`);
   }
 
+  const agentTechServers = containerInput.groupFolder === 'slack_agent-tech'
+    ? buildAgentTechMcpServers(gcpToken)
+    : {};
+
+  log(`MCP servers to register: nanoclaw${Object.keys(agentTechServers).length > 0 ? ', ' + Object.keys(agentTechServers).join(', ') : ''}`);
+  log('Calling query()...');
+
   for await (const message of query({
     prompt: stream,
     options: {
@@ -567,9 +581,7 @@ async function runQuery(
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
         },
-        ...(containerInput.groupFolder === 'slack_agent-tech'
-          ? buildAgentTechMcpServers(gcpToken)
-          : {}),
+        ...agentTechServers,
       },
       hooks: {
         PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],
