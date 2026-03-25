@@ -444,17 +444,32 @@ function buildAgentTechMcpServers(gcpToken?: string | null): Record<string, obje
     log('[agent-tech] SKIP MCP heroku: HEROKU_API_KEY_AGENT_TECH not set');
   }
 
-  // GCP Resource Manager (SSE transport — only this endpoint for now)
-  // The endpoint accepts text/event-stream which maps to SSE transport.
+  // GCP remote MCPs (SSE transport, authenticated via SA bearer token)
   if (gcpToken) {
-    log('[agent-tech] Adding MCP: gcp_resource_manager (type=sse)');
+    const gcpHeaders = { Authorization: `Bearer ${gcpToken}` };
+    log('[agent-tech] Adding MCPs: gcp_resource_manager, gcp_compute, gcp_run, gcp_sql (type=sse)');
     servers['gcp_resource_manager'] = {
       type: 'sse',
       url: 'https://cloudresourcemanager.googleapis.com/mcp',
-      headers: { Authorization: `Bearer ${gcpToken}` },
+      headers: gcpHeaders,
+    };
+    servers['gcp_compute'] = {
+      type: 'sse',
+      url: 'https://compute.googleapis.com/mcp',
+      headers: gcpHeaders,
+    };
+    servers['gcp_run'] = {
+      type: 'sse',
+      url: 'https://run.googleapis.com/mcp',
+      headers: gcpHeaders,
+    };
+    servers['gcp_sql'] = {
+      type: 'sse',
+      url: 'https://sqladmin.googleapis.com/mcp',
+      headers: gcpHeaders,
     };
   } else {
-    log('[agent-tech] SKIP MCP gcp_resource_manager: no GCP token');
+    log('[agent-tech] SKIP MCPs gcp_*: no GCP token');
   }
 
   log(`[agent-tech] MCP servers configured: ${Object.keys(servers).join(', ')}`);
