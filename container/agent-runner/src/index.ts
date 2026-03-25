@@ -384,8 +384,7 @@ function buildAgentTechMcpServers(gcpToken?: string | null): Record<string, obje
   if (e.CLICKHOUSE_HOST_STAGING) {
     log('[agent-tech] Adding MCP: clickhouse_staging');
     servers['clickhouse_staging'] = {
-      command: 'python3',
-      args: ['-m', 'mcp_clickhouse'],
+      command: 'mcp_clickhouse',      
       env: {
         CLICKHOUSE_HOST: e.CLICKHOUSE_HOST_STAGING,
         CLICKHOUSE_PORT: e.CLICKHOUSE_PORT_STAGING || '8123',
