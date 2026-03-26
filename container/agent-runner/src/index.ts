@@ -363,7 +363,7 @@ function buildAgentTechMcpServers(gcpToken?: string | null): Record<string, obje
     log('[agent-tech] Adding MCP: postgres_staging');
     servers['postgres_staging'] = {
       command: 'node',
-      args: ['/workspace/extra/postgres-mcp/index.js', e.PG_AGENT_TECH_STAGING],
+      args: ['/workspace/extra/postgres-mcp/src/postgres/dist/index.js', e.PG_AGENT_TECH_STAGING],
     };
   } else {
     log('[agent-tech] SKIP MCP postgres_staging: PG_AGENT_TECH_STAGING not set');
@@ -374,7 +374,7 @@ function buildAgentTechMcpServers(gcpToken?: string | null): Record<string, obje
     log('[agent-tech] Adding MCP: postgres_prod');
     servers['postgres_prod'] = {
       command: 'node',
-      args: ['/workspace/extra/postgres-mcp/index.js', e.PG_AGENT_TECH_PROD],
+      args: ['/workspace/extra/postgres-mcp/src/postgres/dist/index.js', e.PG_AGENT_TECH_PROD],
     };
   } else {
     log('[agent-tech] SKIP MCP postgres_prod: PG_AGENT_TECH_PROD not set');
