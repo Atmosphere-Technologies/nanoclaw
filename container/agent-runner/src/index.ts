@@ -554,6 +554,15 @@ async function runQuery(
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
         'mcp__nanoclaw__*',
+        'mcp__meta_ads__*',
+        'mcp__google_search_console__*',
+        'mcp__clarity__*',
+        'mcp__google_stitch__*',
+        'mcp__activecampaign__*',
+        'mcp__google_ads__*',
+        'mcp__google_analytics__*',
+        'mcp__figma__*',
+        'mcp__ubersuggest__*',
         ...(containerInput.groupFolder === 'slack_agent-tech' ? [
           'mcp__postgres_staging__*',
           'mcp__postgres_prod__*',
@@ -581,6 +590,85 @@ async function runQuery(
           },
         },
         ...agentTechServers,
+        // ── Meta Ads (ZuckerBot) ──────────────────────────────────────────
+        ...(process.env.ZUCKERBOT_API_KEY ? {
+          meta_ads: {
+            command: 'npx',
+            args: ['-y', 'zuckerbot-mcp'],
+            env: { ZUCKERBOT_API_KEY: process.env.ZUCKERBOT_API_KEY },
+          },
+        } : {}),
+        // ── Google Search Console ─────────────────────────────────────────
+        ...(process.env.GOOGLE_APPLICATION_CREDENTIALS ? {
+          google_search_console: {
+            command: 'npx',
+            args: ['-y', 'mcp-server-gsc'],
+            env: { GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS },
+          },
+        } : {}),
+        // ── Microsoft Clarity ─────────────────────────────────────────────
+        ...(process.env.CLARITY_API_TOKEN ? {
+          clarity: {
+            command: 'npx',
+            args: ['-y', '@microsoft/clarity-mcp-server', `--clarity_api_token=${process.env.CLARITY_API_TOKEN}`],
+          },
+        } : {}),
+        // ── Google Stitch ─────────────────────────────────────────────────
+        ...(process.env.STITCH_API_KEY ? {
+          google_stitch: {
+            command: 'npx',
+            args: ['-y', 'stitch-mcp-server@latest'],
+            env: { STITCH_API_KEY: process.env.STITCH_API_KEY },
+          },
+        } : {}),
+        // ── ActiveCampaign (Remote MCP via mcp-remote) ────────────────────
+        ...(process.env.ACTIVECAMPAIGN_MCP_URL ? {
+          activecampaign: {
+            command: 'npx',
+            args: ['-y', 'mcp-remote', process.env.ACTIVECAMPAIGN_MCP_URL],
+          },
+        } : {}),
+        // ── Google Ads (Python) ───────────────────────────────────────────
+        ...(process.env.GOOGLE_ADS_DEVELOPER_TOKEN && process.env.GOOGLE_APPLICATION_CREDENTIALS ? {
+          google_ads: {
+            command: '/home/node/.local/bin/google-ads-mcp',
+            args: [],
+            env: {
+              GOOGLE_ADS_DEVELOPER_TOKEN: process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
+              GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS,
+              ...(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID
+                ? { GOOGLE_ADS_LOGIN_CUSTOMER_ID: process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID }
+                : {}),
+            },
+          },
+        } : {}),
+        // ── Google Analytics (Python) ─────────────────────────────────────
+        ...(process.env.GOOGLE_APPLICATION_CREDENTIALS ? {
+          google_analytics: {
+            command: '/home/node/.local/bin/ga4-mcp-server',
+            args: [],
+            env: { GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS },
+          },
+        } : {}),
+        // ── Figma (official) ──────────────────────────────────────────────
+        ...(process.env.FIGMA_API_KEY ? {
+          figma: {
+            command: 'npx',
+            args: ['-y', '@figma/mcp-server-figma@latest'],
+            env: { FIGMA_API_KEY: process.env.FIGMA_API_KEY },
+          },
+        } : {}),
+        // ── Ubersuggest (local clone) ─────────────────────────────────────
+        ...(process.env.UBERSUGGEST_USERNAME && process.env.UBERSUGGEST_PASSWORD ? {
+          ubersuggest: {
+            command: 'node',
+            args: ['/workspace/extra/ubersuggest/src/index.js'],
+            env: {
+              UBERSUGGEST_USERNAME: process.env.UBERSUGGEST_USERNAME,
+              UBERSUGGEST_PASSWORD: process.env.UBERSUGGEST_PASSWORD,
+            },
+          },
+        } : {}),
       },
       hooks: {
         PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],
