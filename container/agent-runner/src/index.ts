@@ -428,19 +428,6 @@ function buildAgentTechMcpServers(gcpToken?: string | null): Record<string, obje
     log('[agent-tech] SKIP MCP github: GITHUB_TOKEN_AGENT_TECH not set');
   }
 
-  // Heroku MCP (installed globally in the container image)
-  if (e.HEROKU_API_KEY_AGENT_TECH) {
-    log('[agent-tech] Adding MCP: heroku');
-    servers['heroku'] = {
-      command: 'heroku-mcp-server',
-      args: [],
-      env: {
-        HEROKU_API_KEY: e.HEROKU_API_KEY_AGENT_TECH,
-      },
-    };
-  } else {
-    log('[agent-tech] SKIP MCP heroku: HEROKU_API_KEY_AGENT_TECH not set');
-  }
 
   // GCP remote MCPs (SSE transport, authenticated via SA bearer token)
   if (gcpToken) {
@@ -573,7 +560,6 @@ async function runQuery(
           'mcp__clickhouse_staging__*',
           'mcp__clickhouse_prod__*',
           'mcp__github__*',
-          'mcp__heroku__*',
           'mcp__gcp_resource_manager__*',
           'mcp__gcp_compute__*',
           'mcp__gcp_run__*',

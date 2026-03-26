@@ -38,8 +38,8 @@ RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements-ski
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Install agent-browser, claude-code and Heroku MCP server globally
-RUN npm install -g agent-browser @anthropic-ai/claude-code @heroku/mcp-server
+# Install agent-browser and claude-code globally
+RUN npm install -g agent-browser @anthropic-ai/claude-code
 
 # Create app directory
 WORKDIR /app
