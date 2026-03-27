@@ -628,6 +628,13 @@ async function runQuery(
             args: ['-y', 'mcp-remote', process.env.ACTIVECAMPAIGN_MCP_URL],
           },
         } : {}),
+        // ── Oportunidados App (Remote MCP via mcp-remote) ────────────────────        
+        ...({
+          oportunidados: {
+            command: 'npx',
+            args: ['-y', 'mcp-remote', 'https://atmosphere-mcp-227064378321.southamerica-east1.run.app/mcp'],
+          },
+        }),
         // ── Google Ads (Python) ───────────────────────────────────────────
         ...(process.env.GOOGLE_ADS_DEVELOPER_TOKEN && process.env.GOOGLE_APPLICATION_CREDENTIALS ? {
           google_ads: {
