@@ -538,7 +538,7 @@ function buildMainMcpServers(): Record<string, object> {
   if (e.GOOGLE_ADS_DEVELOPER_TOKEN && e.GOOGLE_MKT_APPLICATION_CREDENTIALS) {
     log('[main] Adding MCP: google_ads');
     servers['google_ads'] = {
-      command: '/home/node/.local/bin/google-ads-mcp',
+      command: '/usr/local/bin/google-ads-mcp',
       args: [],
       env: {
         GOOGLE_ADS_DEVELOPER_TOKEN: e.GOOGLE_ADS_DEVELOPER_TOKEN,
