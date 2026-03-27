@@ -482,15 +482,15 @@ function buildMainMcpServers(): Record<string, object> {
   }
 
   // Google Search Console
-  if (e.GOOGLE_APPLICATION_CREDENTIALS) {
+  if (e.GOOGLE_MKT_APPLICATION_CREDENTIALS) {
     log('[main] Adding MCP: google_search_console');
     servers['google_search_console'] = {
       command: 'npx',
       args: ['-y', 'mcp-server-gsc'],
-      env: { GOOGLE_APPLICATION_CREDENTIALS: e.GOOGLE_APPLICATION_CREDENTIALS },
+      env: { GOOGLE_APPLICATION_CREDENTIALS: e.GOOGLE_MKT_APPLICATION_CREDENTIALS },
     };
   } else {
-    log('[main] SKIP MCP google_search_console: GOOGLE_APPLICATION_CREDENTIALS not set');
+    log('[main] SKIP MCP google_search_console: GOOGLE_MKT_APPLICATION_CREDENTIALS not set');
   }
 
   // Microsoft Clarity
@@ -535,33 +535,33 @@ function buildMainMcpServers(): Record<string, object> {
   };
 
   // Google Ads (Python)
-  if (e.GOOGLE_ADS_DEVELOPER_TOKEN && e.GOOGLE_APPLICATION_CREDENTIALS) {
+  if (e.GOOGLE_ADS_DEVELOPER_TOKEN && e.GOOGLE_MKT_APPLICATION_CREDENTIALS) {
     log('[main] Adding MCP: google_ads');
     servers['google_ads'] = {
       command: '/home/node/.local/bin/google-ads-mcp',
       args: [],
       env: {
         GOOGLE_ADS_DEVELOPER_TOKEN: e.GOOGLE_ADS_DEVELOPER_TOKEN,
-        GOOGLE_APPLICATION_CREDENTIALS: e.GOOGLE_APPLICATION_CREDENTIALS,
+        GOOGLE_APPLICATION_CREDENTIALS: e.GOOGLE_MKT_APPLICATION_CREDENTIALS,
         ...(e.GOOGLE_ADS_LOGIN_CUSTOMER_ID
           ? { GOOGLE_ADS_LOGIN_CUSTOMER_ID: e.GOOGLE_ADS_LOGIN_CUSTOMER_ID }
           : {}),
       },
     };
   } else {
-    log(`[main] SKIP MCP google_ads: ${!e.GOOGLE_ADS_DEVELOPER_TOKEN ? 'GOOGLE_ADS_DEVELOPER_TOKEN' : 'GOOGLE_APPLICATION_CREDENTIALS'} not set`);
+    log(`[main] SKIP MCP google_ads: ${!e.GOOGLE_ADS_DEVELOPER_TOKEN ? 'GOOGLE_ADS_DEVELOPER_TOKEN' : 'GOOGLE_MKT_APPLICATION_CREDENTIALS'} not set`);
   }
 
   // Google Analytics (Python)
-  if (e.GOOGLE_APPLICATION_CREDENTIALS) {
+  if (e.GOOGLE_MKT_APPLICATION_CREDENTIALS) {
     log('[main] Adding MCP: google_analytics');
     servers['google_analytics'] = {
       command: '/home/node/.local/bin/ga4-mcp-server',
       args: [],
-      env: { GOOGLE_APPLICATION_CREDENTIALS: e.GOOGLE_APPLICATION_CREDENTIALS },
+      env: { GOOGLE_APPLICATION_CREDENTIALS: e.GOOGLE_MKT_APPLICATION_CREDENTIALS },
     };
   } else {
-    log('[main] SKIP MCP google_analytics: GOOGLE_APPLICATION_CREDENTIALS not set');
+    log('[main] SKIP MCP google_analytics: GOOGLE_MKT_APPLICATION_CREDENTIALS not set');
   }
 
   // Figma
