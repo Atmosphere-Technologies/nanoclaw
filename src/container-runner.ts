@@ -27,7 +27,7 @@ import {
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
 import { validateAdditionalMounts } from './mount-security.js';
-import { RegisteredGroup } from './types.js';
+import { ContainerConfig, RegisteredGroup } from './types.js';
 
 // Sentinel markers for robust output parsing (must match agent-runner)
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
@@ -281,6 +281,30 @@ function buildContainerArgs(
   return args;
 }
 
+/**
+ * Load containerConfig from any *config.json file in the group directory.
+ * If found, it replaces (not merges) the containerConfig from the database.
+ * This allows per-group config to be managed as files rather than DB records.
+ */
+function loadGroupContainerConfig(groupDir: string, groupName: string): ContainerConfig | undefined {
+  let configFile: string | undefined;
+  try {
+    const files = fs.readdirSync(groupDir).filter(f => f.endsWith('config.json'));
+    if (files.length === 0) return undefined;
+    configFile = path.join(groupDir, files[0]);
+    if (files.length > 1) {
+      logger.warn({ group: groupName, files }, 'Multiple *config.json files found, using first');
+    }
+    const raw = fs.readFileSync(configFile, 'utf-8');
+    const config = JSON.parse(raw) as ContainerConfig;
+    logger.info({ group: groupName, file: configFile }, 'Loaded containerConfig from file (overrides DB)');
+    return config;
+  } catch (err) {
+    logger.warn({ group: groupName, file: configFile, err }, 'Failed to load *config.json, falling back to DB config');
+    return undefined;
+  }
+}
+
 export async function runContainerAgent(
   group: RegisteredGroup,
   input: ContainerInput,
@@ -292,13 +316,16 @@ export async function runContainerAgent(
   const groupDir = resolveGroupFolderPath(group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
 
-  const mounts = buildVolumeMounts(group, input.isMain, input.ipcFolder);
+  const fileConfig = loadGroupContainerConfig(groupDir, group.name);
+  const effectiveGroup = fileConfig ? { ...group, containerConfig: fileConfig } : group;
+
+  const mounts = buildVolumeMounts(effectiveGroup, input.isMain, input.ipcFolder);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
   const containerArgs = buildContainerArgs(
     mounts,
     containerName,
-    group.containerConfig?.envPassthrough,
+    effectiveGroup.containerConfig?.envPassthrough,
   );
 
   logger.debug(
@@ -423,7 +450,7 @@ export async function runContainerAgent(
 
     let timedOut = false;
     let hadStreamingOutput = false;
-    const configTimeout = group.containerConfig?.timeout || CONTAINER_TIMEOUT;
+    const configTimeout = effectiveGroup.containerConfig?.timeout || CONTAINER_TIMEOUT;
     // Grace period: hard timeout must be at least IDLE_TIMEOUT + 30s so the
     // graceful _close sentinel has time to trigger before the hard kill fires.
     const timeoutMs = Math.max(configTimeout, IDLE_TIMEOUT + 30_000);
