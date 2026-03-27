@@ -296,7 +296,9 @@ function loadGroupContainerConfig(groupDir: string, groupName: string): Containe
       logger.warn({ group: groupName, files }, 'Multiple *config.json files found, using first');
     }
     const raw = fs.readFileSync(configFile, 'utf-8');
-    const config = JSON.parse(raw) as ContainerConfig;
+    const parsed = JSON.parse(raw);
+    // Support both flat ContainerConfig and wrapped {containerConfig: ...} format
+    const config: ContainerConfig = parsed.containerConfig ?? parsed;
     logger.info({ group: groupName, file: configFile }, 'Loaded containerConfig from file (overrides DB)');
     return config;
   } catch (err) {
