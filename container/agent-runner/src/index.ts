@@ -462,6 +462,140 @@ function buildAgentTechMcpServers(gcpToken?: string | null): Record<string, obje
 }
 
 /**
+ * Build MCP servers for the slack_main channel.
+ * Each MCP is only added when its corresponding env var is present.
+ */
+function buildMainMcpServers(): Record<string, object> {
+  const servers: Record<string, object> = {};
+  const e = process.env;
+
+  // Meta Ads (ZuckerBot)
+  if (e.ZUCKERBOT_API_KEY) {
+    log('[main] Adding MCP: meta_ads');
+    servers['meta_ads'] = {
+      command: 'npx',
+      args: ['-y', 'zuckerbot-mcp'],
+      env: { ZUCKERBOT_API_KEY: e.ZUCKERBOT_API_KEY },
+    };
+  } else {
+    log('[main] SKIP MCP meta_ads: ZUCKERBOT_API_KEY not set');
+  }
+
+  // Google Search Console
+  if (e.GOOGLE_APPLICATION_CREDENTIALS) {
+    log('[main] Adding MCP: google_search_console');
+    servers['google_search_console'] = {
+      command: 'npx',
+      args: ['-y', 'mcp-server-gsc'],
+      env: { GOOGLE_APPLICATION_CREDENTIALS: e.GOOGLE_APPLICATION_CREDENTIALS },
+    };
+  } else {
+    log('[main] SKIP MCP google_search_console: GOOGLE_APPLICATION_CREDENTIALS not set');
+  }
+
+  // Microsoft Clarity
+  if (e.CLARITY_API_TOKEN) {
+    log('[main] Adding MCP: clarity');
+    servers['clarity'] = {
+      command: 'npx',
+      args: ['-y', '@microsoft/clarity-mcp-server', `--clarity_api_token=${e.CLARITY_API_TOKEN}`],
+    };
+  } else {
+    log('[main] SKIP MCP clarity: CLARITY_API_TOKEN not set');
+  }
+
+  // Google Stitch
+  if (e.STITCH_API_KEY) {
+    log('[main] Adding MCP: google_stitch');
+    servers['google_stitch'] = {
+      command: 'npx',
+      args: ['-y', 'stitch-mcp-server@latest'],
+      env: { STITCH_API_KEY: e.STITCH_API_KEY },
+    };
+  } else {
+    log('[main] SKIP MCP google_stitch: STITCH_API_KEY not set');
+  }
+
+  // ActiveCampaign (Remote MCP via mcp-remote)
+  if (e.ACTIVECAMPAIGN_MCP_URL) {
+    log('[main] Adding MCP: activecampaign');
+    servers['activecampaign'] = {
+      command: 'npx',
+      args: ['-y', 'mcp-remote', e.ACTIVECAMPAIGN_MCP_URL],
+    };
+  } else {
+    log('[main] SKIP MCP activecampaign: ACTIVECAMPAIGN_MCP_URL not set');
+  }
+
+  // Oportunidados App (Remote MCP via mcp-remote)
+  log('[main] Adding MCP: oportunidados');
+  servers['oportunidados'] = {
+    command: 'npx',
+    args: ['-y', 'mcp-remote', 'https://atmosphere-mcp-227064378321.southamerica-east1.run.app/mcp'],
+  };
+
+  // Google Ads (Python)
+  if (e.GOOGLE_ADS_DEVELOPER_TOKEN && e.GOOGLE_APPLICATION_CREDENTIALS) {
+    log('[main] Adding MCP: google_ads');
+    servers['google_ads'] = {
+      command: '/home/node/.local/bin/google-ads-mcp',
+      args: [],
+      env: {
+        GOOGLE_ADS_DEVELOPER_TOKEN: e.GOOGLE_ADS_DEVELOPER_TOKEN,
+        GOOGLE_APPLICATION_CREDENTIALS: e.GOOGLE_APPLICATION_CREDENTIALS,
+        ...(e.GOOGLE_ADS_LOGIN_CUSTOMER_ID
+          ? { GOOGLE_ADS_LOGIN_CUSTOMER_ID: e.GOOGLE_ADS_LOGIN_CUSTOMER_ID }
+          : {}),
+      },
+    };
+  } else {
+    log(`[main] SKIP MCP google_ads: ${!e.GOOGLE_ADS_DEVELOPER_TOKEN ? 'GOOGLE_ADS_DEVELOPER_TOKEN' : 'GOOGLE_APPLICATION_CREDENTIALS'} not set`);
+  }
+
+  // Google Analytics (Python)
+  if (e.GOOGLE_APPLICATION_CREDENTIALS) {
+    log('[main] Adding MCP: google_analytics');
+    servers['google_analytics'] = {
+      command: '/home/node/.local/bin/ga4-mcp-server',
+      args: [],
+      env: { GOOGLE_APPLICATION_CREDENTIALS: e.GOOGLE_APPLICATION_CREDENTIALS },
+    };
+  } else {
+    log('[main] SKIP MCP google_analytics: GOOGLE_APPLICATION_CREDENTIALS not set');
+  }
+
+  // Figma
+  if (e.FIGMA_API_KEY) {
+    log('[main] Adding MCP: figma');
+    servers['figma'] = {
+      command: 'npx',
+      args: ['-y', '@figma/mcp-server-figma@latest'],
+      env: { FIGMA_API_KEY: e.FIGMA_API_KEY },
+    };
+  } else {
+    log('[main] SKIP MCP figma: FIGMA_API_KEY not set');
+  }
+
+  // Ubersuggest (local clone)
+  if (e.UBERSUGGEST_USERNAME && e.UBERSUGGEST_PASSWORD) {
+    log('[main] Adding MCP: ubersuggest');
+    servers['ubersuggest'] = {
+      command: 'node',
+      args: ['/workspace/extra/ubersuggest/src/index.js'],
+      env: {
+        UBERSUGGEST_USERNAME: e.UBERSUGGEST_USERNAME,
+        UBERSUGGEST_PASSWORD: e.UBERSUGGEST_PASSWORD,
+      },
+    };
+  } else {
+    log(`[main] SKIP MCP ubersuggest: ${!e.UBERSUGGEST_USERNAME ? 'UBERSUGGEST_USERNAME' : 'UBERSUGGEST_PASSWORD'} not set`);
+  }
+
+  log(`[main] MCP servers configured: ${Object.keys(servers).join(', ')}`);
+  return servers;
+}
+
+/**
  * Run a single query and stream results via writeOutput.
  * Uses MessageStream (AsyncIterable) to keep isSingleUserTurn=false,
  * allowing agent teams subagents to run to completion.
@@ -532,7 +666,12 @@ async function runQuery(
     ? buildAgentTechMcpServers(gcpToken)
     : {};
 
-  log(`MCP servers to register: nanoclaw${Object.keys(agentTechServers).length > 0 ? ', ' + Object.keys(agentTechServers).join(', ') : ''}`);
+  const mainServers = containerInput.groupFolder === 'slack_main'
+    ? buildMainMcpServers()
+    : {};
+
+  const allExtraServers = { ...agentTechServers, ...mainServers };
+  log(`MCP servers to register: nanoclaw${Object.keys(allExtraServers).length > 0 ? ', ' + Object.keys(allExtraServers).join(', ') : ''}`);
   log('Calling query()...');
 
   for await (const message of query({
@@ -556,9 +695,10 @@ async function runQuery(
         'mcp__nanoclaw__*',
         'mcp__meta_ads__*',
         'mcp__google_search_console__*',
-        'mcp__clarity__*',
+        'mcp__clarity__*',        
         'mcp__google_stitch__*',
         'mcp__activecampaign__*',
+        'mcp__oportunidados__*',
         'mcp__google_ads__*',
         'mcp__google_analytics__*',
         'mcp__figma__*',
@@ -589,93 +729,7 @@ async function runQuery(
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
         },
-        ...agentTechServers,
-        // ── Meta Ads (ZuckerBot) ──────────────────────────────────────────
-        ...(process.env.ZUCKERBOT_API_KEY ? {
-          meta_ads: {
-            command: 'npx',
-            args: ['-y', 'zuckerbot-mcp'],
-            env: { ZUCKERBOT_API_KEY: process.env.ZUCKERBOT_API_KEY },
-          },
-        } : {}),
-        // ── Google Search Console ─────────────────────────────────────────
-        ...(process.env.GOOGLE_APPLICATION_CREDENTIALS ? {
-          google_search_console: {
-            command: 'npx',
-            args: ['-y', 'mcp-server-gsc'],
-            env: { GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS },
-          },
-        } : {}),
-        // ── Microsoft Clarity ─────────────────────────────────────────────
-        ...(process.env.CLARITY_API_TOKEN ? {
-          clarity: {
-            command: 'npx',
-            args: ['-y', '@microsoft/clarity-mcp-server', `--clarity_api_token=${process.env.CLARITY_API_TOKEN}`],
-          },
-        } : {}),
-        // ── Google Stitch ─────────────────────────────────────────────────
-        ...(process.env.STITCH_API_KEY ? {
-          google_stitch: {
-            command: 'npx',
-            args: ['-y', 'stitch-mcp-server@latest'],
-            env: { STITCH_API_KEY: process.env.STITCH_API_KEY },
-          },
-        } : {}),
-        // ── ActiveCampaign (Remote MCP via mcp-remote) ────────────────────
-        ...(process.env.ACTIVECAMPAIGN_MCP_URL ? {
-          activecampaign: {
-            command: 'npx',
-            args: ['-y', 'mcp-remote', process.env.ACTIVECAMPAIGN_MCP_URL],
-          },
-        } : {}),
-        // ── Oportunidados App (Remote MCP via mcp-remote) ────────────────────        
-        ...({
-          oportunidados: {
-            command: 'npx',
-            args: ['-y', 'mcp-remote', 'https://atmosphere-mcp-227064378321.southamerica-east1.run.app/mcp'],
-          },
-        }),
-        // ── Google Ads (Python) ───────────────────────────────────────────
-        ...(process.env.GOOGLE_ADS_DEVELOPER_TOKEN && process.env.GOOGLE_APPLICATION_CREDENTIALS ? {
-          google_ads: {
-            command: '/home/node/.local/bin/google-ads-mcp',
-            args: [],
-            env: {
-              GOOGLE_ADS_DEVELOPER_TOKEN: process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
-              GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS,
-              ...(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID
-                ? { GOOGLE_ADS_LOGIN_CUSTOMER_ID: process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID }
-                : {}),
-            },
-          },
-        } : {}),
-        // ── Google Analytics (Python) ─────────────────────────────────────
-        ...(process.env.GOOGLE_APPLICATION_CREDENTIALS ? {
-          google_analytics: {
-            command: '/home/node/.local/bin/ga4-mcp-server',
-            args: [],
-            env: { GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS },
-          },
-        } : {}),
-        // ── Figma (official) ──────────────────────────────────────────────
-        ...(process.env.FIGMA_API_KEY ? {
-          figma: {
-            command: 'npx',
-            args: ['-y', '@figma/mcp-server-figma@latest'],
-            env: { FIGMA_API_KEY: process.env.FIGMA_API_KEY },
-          },
-        } : {}),
-        // ── Ubersuggest (local clone) ─────────────────────────────────────
-        ...(process.env.UBERSUGGEST_USERNAME && process.env.UBERSUGGEST_PASSWORD ? {
-          ubersuggest: {
-            command: 'node',
-            args: ['/workspace/extra/ubersuggest/src/index.js'],
-            env: {
-              UBERSUGGEST_USERNAME: process.env.UBERSUGGEST_USERNAME,
-              UBERSUGGEST_PASSWORD: process.env.UBERSUGGEST_PASSWORD,
-            },
-          },
-        } : {}),
+        ...allExtraServers,
       },
       hooks: {
         PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],
