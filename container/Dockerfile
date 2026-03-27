@@ -34,6 +34,11 @@ COPY requirements.txt /tmp/requirements-skills.txt
 RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements-skills.txt \
     && pip3 install --no-cache-dir --break-system-packages mcp-clickhouse
 
+# Install google-ads-mcp from local clone (copied into build context by build.sh)
+COPY google-ads-mcp/ /tmp/google-ads-mcp/
+RUN pip3 install --no-cache-dir --break-system-packages /tmp/google-ads-mcp \
+    && rm -rf /tmp/google-ads-mcp
+
 # Set Chromium path for agent-browser
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
