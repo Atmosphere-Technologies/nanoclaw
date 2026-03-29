@@ -462,6 +462,40 @@ function buildAgentTechMcpServers(gcpToken?: string | null): Record<string, obje
 }
 
 /**
+ * Build MCP servers for the slack_executive channel.
+ * Each MCP is only added when its corresponding env var is present.
+ */
+function buildExecutiveMcpServers(): Record<string, object> {
+  const servers: Record<string, object> = {};
+  const e = process.env;
+
+  // PostgreSQL staging
+  if (e.PG_EXECUTIVE_STAGING) {
+    log('[executive] Adding MCP: postgres_staging');
+    servers['postgres_staging'] = {
+      command: 'node',
+      args: ['/workspace/extra/postgres-mcp/src/postgres/dist/index.js', e.PG_EXECUTIVE_STAGING],
+    };
+  } else {
+    log('[executive] SKIP MCP postgres_staging: PG_EXECUTIVE_STAGING not set');
+  }
+
+  // PostgreSQL prod
+  if (e.PG_EXECUTIVE_PROD) {
+    log('[executive] Adding MCP: postgres_prod');
+    servers['postgres_prod'] = {
+      command: 'node',
+      args: ['/workspace/extra/postgres-mcp/src/postgres/dist/index.js', e.PG_EXECUTIVE_PROD],
+    };
+  } else {
+    log('[executive] SKIP MCP postgres_prod: PG_EXECUTIVE_PROD not set');
+  }
+
+  log(`[executive] MCP servers configured: ${Object.keys(servers).join(', ')}`);
+  return servers;
+}
+
+/**
  * Build MCP servers for the slack_main channel.
  * Each MCP is only added when its corresponding env var is present.
  */
@@ -670,7 +704,11 @@ async function runQuery(
     ? buildMainMcpServers()
     : {};
 
-  const allExtraServers = { ...agentTechServers, ...mainServers };
+  const executiveServers = containerInput.groupFolder === 'slack_executive'
+    ? buildExecutiveMcpServers()
+    : {};
+
+  const allExtraServers = { ...agentTechServers, ...mainServers, ...executiveServers };
   log(`MCP servers to register: nanoclaw${Object.keys(allExtraServers).length > 0 ? ', ' + Object.keys(allExtraServers).join(', ') : ''}`);
   log('Calling query()...');
 
@@ -713,6 +751,10 @@ async function runQuery(
           'mcp__gcp_compute__*',
           'mcp__gcp_run__*',
           'mcp__gcp_sql__*',
+        ] : []),
+        ...(containerInput.groupFolder === 'slack_executive' ? [
+          'mcp__postgres_staging__*',
+          'mcp__postgres_prod__*',
         ] : []),
       ],
       env: sdkEnv,
