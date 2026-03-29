@@ -428,6 +428,17 @@ function buildAgentTechMcpServers(gcpToken?: string | null): Record<string, obje
     log('[agent-tech] SKIP MCP github: GITHUB_TOKEN_AGENT_TECH not set');
   }
 
+  // Microsoft Clarity
+  if (e.CLARITY_APP_API_TOKEN) {
+    log('[main] Adding MCP: clarity_app');
+    servers['clarity_app'] = {
+      command: 'npx',
+      args: ['-y', '@microsoft/clarity-mcp-server', `--clarity_api_token=${e.CLARITY_APP_API_TOKEN}`],
+    };
+  } else {
+    log('[main] SKIP MCP clarity_app: CLARITY_APP_API_TOKEN not set');
+  }
+
 
   // GCP remote MCPs (SSE transport, authenticated via SA bearer token)
   if (gcpToken) {
@@ -528,14 +539,24 @@ function buildMainMcpServers(): Record<string, object> {
   }
 
   // Microsoft Clarity
-  if (e.CLARITY_API_TOKEN) {
-    log('[main] Adding MCP: clarity');
-    servers['clarity'] = {
+  if (e.CLARITY_APP_API_TOKEN) {
+    log('[main] Adding MCP: clarity_app');
+    servers['clarity_app'] = {
       command: 'npx',
-      args: ['-y', '@microsoft/clarity-mcp-server', `--clarity_api_token=${e.CLARITY_API_TOKEN}`],
+      args: ['-y', '@microsoft/clarity-mcp-server', `--clarity_api_token=${e.CLARITY_APP_API_TOKEN}`],
     };
   } else {
-    log('[main] SKIP MCP clarity: CLARITY_API_TOKEN not set');
+    log('[main] SKIP MCP clarity_app: CLARITY_APP_API_TOKEN not set');
+  }
+
+  if (e.CLARITY_HP_API_TOKEN) {
+    log('[main] Adding MCP: clarity_hp');
+    servers['clarity_hp'] = {
+      command: 'npx',
+      args: ['-y', '@microsoft/clarity-mcp-server', `--clarity_api_token=${e.CLARITY_HP_API_TOKEN}`],
+    };
+  } else {
+    log('[main] SKIP MCP clarity_hp: CLARITY_HP_API_TOKEN not set');
   }
 
   // Google Stitch
@@ -733,7 +754,8 @@ async function runQuery(
         'mcp__nanoclaw__*',
         'mcp__meta_ads__*',
         'mcp__google_search_console__*',
-        'mcp__clarity__*',        
+        'mcp__clarity_app__*',
+        'mcp__clarity_hp__*',
         'mcp__google_stitch__*',
         'mcp__activecampaign__*',
         'mcp__oportunidados__*',
