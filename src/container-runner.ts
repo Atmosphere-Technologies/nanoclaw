@@ -201,6 +201,18 @@ function buildVolumeMounts(
     readonly: false,
   });
 
+  // File attachments uploaded from Slack (or other channels) are saved to
+  // data/uploads/<group.folder>/ on the host and exposed read-only at
+  // /workspace/uploads inside the container so agents can read them.
+  const uploadsDir = path.join(DATA_DIR, 'uploads', group.folder);
+  if (fs.existsSync(uploadsDir)) {
+    mounts.push({
+      hostPath: uploadsDir,
+      containerPath: '/workspace/uploads',
+      readonly: true,
+    });
+  }
+
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {
     const validatedMounts = validateAdditionalMounts(
