@@ -589,6 +589,18 @@ function buildMainMcpServers(): Record<string, object> {
     args: ['-y', 'mcp-remote', 'https://atmosphere-mcp-227064378321.southamerica-east1.run.app/mcp'],
   };
 
+  // Intercom (Remote MCP — streamable HTTP with bearer token auth)
+  if (e.INTERCOM_TOKEN) {
+    log('[main] Adding MCP: intercom');
+    servers['intercom'] = {
+      type: 'http',
+      url: 'https://mcp.intercom.com/mcp',
+      headers: { Authorization: `Bearer ${e.INTERCOM_TOKEN}` },
+    };
+  } else {
+    log('[main] SKIP MCP intercom: INTERCOM_TOKEN not set');
+  }
+
   // Google Ads (Python)
   if (e.GOOGLE_ADS_DEVELOPER_TOKEN && e.GOOGLE_MKT_APPLICATION_CREDENTIALS) {
     log('[main] Adding MCP: google_ads');
@@ -790,6 +802,7 @@ async function runQuery(
         'mcp__google_stitch__*',
         'mcp__activecampaign__*',
         'mcp__oportunidados__*',
+        'mcp__intercom__*',
         'mcp__google_ads__*',
         'mcp__google_analytics__*',
         'mcp__figma__*',
