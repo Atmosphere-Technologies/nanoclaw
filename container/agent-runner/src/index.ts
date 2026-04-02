@@ -667,12 +667,12 @@ function buildCustomerSupportMcpServers(): Record<string, object> {
   const e = process.env;
 
   // Intercom
-  if (e.INTERCOM_ACCESS_TOKEN) {
+  if (e.INTERCOM_TOKEN) {
     log('[customer-support] Adding MCP: intercom');
     servers['intercom'] = {
       command: 'npx',
       args: ['-y', '@intercom/mcp'],
-      env: { INTERCOM_ACCESS_TOKEN: e.INTERCOM_ACCESS_TOKEN },
+      env: { INTERCOM_ACCESS_TOKEN: e.INTERCOM_TOKEN },
     };
   } else {
     log('[customer-support] SKIP MCP intercom: INTERCOM_ACCESS_TOKEN not set');
