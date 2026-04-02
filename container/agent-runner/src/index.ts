@@ -650,6 +650,33 @@ function buildMainMcpServers(): Record<string, object> {
   return servers;
 }
 
+function buildCustomerSupportMcpServers(): Record<string, object> {
+  const servers: Record<string, object> = {};
+  const e = process.env;
+
+  // Intercom
+  if (e.INTERCOM_ACCESS_TOKEN) {
+    log('[customer-support] Adding MCP: intercom');
+    servers['intercom'] = {
+      command: 'npx',
+      args: ['-y', '@intercom/mcp'],
+      env: { INTERCOM_ACCESS_TOKEN: e.INTERCOM_ACCESS_TOKEN },
+    };
+  } else {
+    log('[customer-support] SKIP MCP intercom: INTERCOM_ACCESS_TOKEN not set');
+  }
+
+  // Oportunidados App (Remote MCP via mcp-remote)
+  log('[customer-support] Adding MCP: oportunidados');
+  servers['oportunidados'] = {
+    command: 'npx',
+    args: ['-y', 'mcp-remote', 'https://atmosphere-mcp-227064378321.southamerica-east1.run.app/mcp'],
+  };
+
+  log(`[customer-support] MCP servers configured: ${Object.keys(servers).join(', ')}`);
+  return servers;
+}
+
 /**
  * Run a single query and stream results via writeOutput.
  * Uses MessageStream (AsyncIterable) to keep isSingleUserTurn=false,
@@ -729,7 +756,11 @@ async function runQuery(
     ? buildExecutiveMcpServers()
     : {};
 
-  const allExtraServers = { ...agentTechServers, ...mainServers, ...executiveServers };
+  const customerSupportServers = containerInput.groupFolder === 'slack_customer-support'
+    ? buildCustomerSupportMcpServers()
+    : {};
+
+  const allExtraServers = { ...agentTechServers, ...mainServers, ...executiveServers, ...customerSupportServers };
   log(`MCP servers to register: nanoclaw${Object.keys(allExtraServers).length > 0 ? ', ' + Object.keys(allExtraServers).join(', ') : ''}`);
   log('Calling query()...');
 
@@ -777,6 +808,9 @@ async function runQuery(
         ...(containerInput.groupFolder === 'slack_executive' ? [
           'mcp__postgres_staging__*',
           'mcp__postgres_prod__*',
+        ] : []),
+        ...(containerInput.groupFolder === 'slack_customer-support' ? [
+          'mcp__intercom__*',
         ] : []),
       ],
       env: sdkEnv,
